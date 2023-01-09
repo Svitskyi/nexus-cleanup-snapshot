@@ -1,53 +1,55 @@
 import groovy.xml.XmlSlurper
 
-long MEGABYTE = 1024L * 1024L;
-Long cleanedBytes = 0
+def nexusSnapshotsUrl = "http://localhost:8081/nexus/content/repositories/snapshots"
+def nexusCredentials = "admin:admin123"
 def olderThanDays = -1
 def ga = "com/test/testng-docker"
 
-def olderThanDate = getAllVersionsForArtifact(ga)
-        .findAll { snapshotOlderThanDays(olderThanDays, it.date) }
+run(nexusSnapshotsUrl, nexusCredentials, olderThanDays, ga)
 
-if (olderThanDate) {
+def run(def nexusSnapshotsUrl, def nexusCredentials, def olderThanDays, def ga) {
+    long MEGABYTE = 1024L * 1024L;
+    Long cleanedBytes = 0
 
-    print "Found $olderThanDate.size artifacts older than $olderThanDays days\n"
+    def olderThanDate = getAllVersionsForArtifact(nexusSnapshotsUrl, ga)
+            .findAll { snapshotOlderThanDays(olderThanDays, it.date) }
 
-    def canCleanup = 0
+    if (olderThanDate) {
+        print "Found $olderThanDate.size artifacts older than $olderThanDays days\n"
+        def canCleanup = 0
 
-    olderThanDate.each {
-        print "${it.url}\n"
-        canCleanup += getTotalSizeOfAVersion(it.name)
-    }
-    print "Can cleanup: ${canCleanup / MEGABYTE} Megabytes ($canCleanup bytes)\n"
+        olderThanDate.each {
+            print "${it.url}\n"
+            canCleanup += getTotalSizeOfAVersion(nexusSnapshotsUrl, ga, it.name)
+        }
+        print "Can cleanup: ${canCleanup / MEGABYTE} Megabytes ($canCleanup bytes)\n"
 
-    def choice = System.console().readLine 'Proceed? (y/n)\n'
+        def choice = System.console().readLine 'Proceed? (y/n)\n'
 
-    if (choice.equals('y')) {
-        olderThanDate
-                .each {
-                    Long sizeOfAVersion = getTotalSizeOfAVersion(it.name)
-                    def delete = new URL("$it.url").openConnection()
-                    delete.setRequestMethod("DELETE")
-                    delete.setRequestProperty('Authorization', "Basic ${"admin:admin123".bytes.encodeBase64().toString()}")
-                    def getRC = delete.getResponseCode()
-                    println "DELETING: ${it.url}"
-                    if (getRC.equals(204)) {
-                        println "DELETED: ${it.url} and cleaned $sizeOfAVersion bytes"
-                        cleanedBytes += sizeOfAVersion
+        if (choice.equals('y')) {
+            olderThanDate
+                    .each {
+                        Long sizeOfAVersion = getTotalSizeOfAVersion(nexusSnapshotsUrl, ga, it.name)
+                        def delete = new URL("$it.url").openConnection()
+                        delete.setRequestMethod("DELETE")
+                        delete.setRequestProperty('Authorization', "Basic ${nexusCredentials.bytes.encodeBase64().toString()}")
+                        def getRC = delete.getResponseCode()
+                        println "DELETING: ${it.url}"
+                        if (getRC.equals(204)) {
+                            println "DELETED: ${it.url} and cleaned $sizeOfAVersion bytes"
+                            cleanedBytes += sizeOfAVersion
+                        }
                     }
-                }
-        println "Cleaned ${canCleanup / MEGABYTE} Megabytes ($canCleanup bytes)\n"
+            println "Cleaned ${canCleanup / MEGABYTE} Megabytes ($canCleanup bytes)\n"
+        } else {
+            print "Exit\n"
+        }
     } else {
-        print "Exit\n"
+        print "No artifacts older than $olderThanDays days found\n"
     }
-} else {
-    print "No artifacts older than $olderThanDays days found\n"
 }
 
-Long getTotalSizeOfAVersion(def v) {
-
-    def nexusSnapshotsUrl = "http://localhost:8081/nexus/content/repositories/snapshots"
-    def ga = "com/test/testng-docker"
+private Long getTotalSizeOfAVersion(def nexusSnapshotsUrl, def ga, def v) {
 
     def artifactUrl = new URL("$nexusSnapshotsUrl/$ga/$v").openConnection()
     def getRC = artifactUrl.getResponseCode()
@@ -59,7 +61,6 @@ Long getTotalSizeOfAVersion(def v) {
                 return "$it"
             }
         }.join('\n')
-
 
         def slurper = new XmlSlurper()
         def htmlParser = slurper.parseText(text)
@@ -87,10 +88,7 @@ Long getTotalSizeOfAVersion(def v) {
     }
 }
 
-def getAllVersionsForArtifact(ga) {
-
-    def nexusSnapshotsUrl = "http://localhost:8081/nexus/content/repositories/snapshots"
-
+private def getAllVersionsForArtifact(def nexusSnapshotsUrl, def ga) {
     def artifactUrl = new URL("$nexusSnapshotsUrl/$ga").openConnection()
     def getRC = artifactUrl.getResponseCode()
     if (getRC.equals(200)) {
@@ -126,16 +124,15 @@ def getAllVersionsForArtifact(ga) {
     }
 }
 
-def snapshotOlderThanDays(int olderThanDays, date) {
-
+private def snapshotOlderThanDays(int olderThanDays, date) {
     def duration = groovy.time.TimeCategory.minus(new Date(), new Date(date))
-    def values = [
-            "seconds: " + duration.seconds,
-            "min: " + duration.minutes,
-            "hours: " + duration.hours,
-            "days: " + duration.days,
-            "ago: " + duration.ago,
-    ]
+//    def values = [
+//            "seconds: " + duration.seconds,
+//            "min: " + duration.minutes,
+//            "hours: " + duration.hours,
+//            "days: " + duration.days,
+//            "ago: " + duration.ago,
+//    ]
 
     if (duration.days > olderThanDays) {
         return true
